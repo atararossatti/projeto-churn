@@ -1,11 +1,11 @@
 # Previsão de Churn em Telecomunicações
 
-![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
-![scikit-learn](https://img.shields.io/badge/scikit--learn-1.x-F7931E?logo=scikitlearn&logoColor=white)
-![pandas](https://img.shields.io/badge/pandas-3.x-150458?logo=pandas&logoColor=white)
-![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?logo=scikitlearn&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-container-2496ED?logo=docker&logoColor=white)
 
-Modelo de classificação para identificar clientes com alta probabilidade de cancelar o serviço (churn), permitindo ações de retenção antes da perda.
+Projeto de ponta a ponta de Machine Learning: análise de dados, modelagem, avaliação, API de previsão com FastAPI e empacotamento com Docker. O objetivo é identificar clientes com alta probabilidade de cancelar o serviço (churn), permitindo ações de retenção antes da perda.
 
 ## Sumário
 
@@ -14,13 +14,17 @@ Modelo de classificação para identificar clientes com alta probabilidade de ca
 - [Metodologia](#metodologia)
 - [Visualizações](#visualizações)
 - [Resultados](#resultados)
+- [Variáveis mais importantes](#variáveis-mais-importantes)
+- [API](#api)
+- [Docker](#docker)
 - [Como reproduzir](#como-reproduzir)
-- [Próximos passos](#próximos-passos)
+- [Estrutura do projeto](#estrutura-do-projeto)
+- [Limitações e próximos passos](#limitações-e-próximos-passos)
 - [Fonte dos dados](#fonte-dos-dados)
 
 ## Contexto
 
-Em empresas de assinatura, reter um cliente costuma custar menos do que conquistar um novo. O objetivo deste projeto é prever o cancelamento a partir do perfil e do comportamento de contratação do cliente, priorizando a **detecção de quem realmente cancela** (recall da classe positiva) em vez da acurácia geral.
+Em empresas de assinatura, reter um cliente costuma custar menos do que conquistar um novo. Este projeto prevê o cancelamento a partir do perfil e dos serviços contratados, priorizando a **detecção de quem realmente cancela** (recall da classe positiva) em vez da acurácia geral.
 
 ## Dados
 
@@ -44,15 +48,19 @@ flowchart LR
     B --> C[Separação X e y]
     C --> D[Treino 80% / Teste 20%]
     D --> E[Pré-processamento]
-    E --> F[Regressão Logística]
-    F --> G[Avaliação no conjunto de teste]
+    E --> F[Modelos]
+    F --> G[Avaliação]
+    G --> H[Ajuste do limiar]
+    H --> I[API FastAPI]
+    I --> J[Docker]
 ```
 
 1. **Limpeza:** conversão de `TotalCharges` para numérico, remoção de 11 registros com valor ausente e remoção do identificador `customerID`.
 2. **Codificação do alvo:** `Churn` mapeado para 0 e 1.
 3. **Divisão:** 80% treino e 20% teste, com `stratify` para manter a proporção de churn nos dois conjuntos e `random_state=42` para reprodutibilidade.
 4. **Pré-processamento:** `OneHotEncoder` nas variáveis categóricas e `StandardScaler` nas numéricas, encapsulados em um `Pipeline` do scikit-learn para evitar vazamento de dados entre treino e teste.
-5. **Modelo base (baseline):** Regressão Logística.
+5. **Modelos comparados:** Regressão Logística (baseline) e Random Forest com 200 árvores.
+6. **Ajuste do limiar de decisão** do melhor modelo, para aumentar a detecção de cancelamentos.
 
 ## Visualizações
 
@@ -78,43 +86,153 @@ O tipo de contrato mostra grande diferença na taxa de cancelamento, sendo um fo
   <img src="images/matriz_confusao.png" alt="Matriz de confusão no conjunto de teste" width="400">
 </p>
 
-Mostra quantos clientes o modelo classificou corretamente e onde errou no conjunto de teste.
+Matriz do modelo com limiar padrão de 0,5, no conjunto de teste.
 
 ## Resultados
 
 Avaliação no conjunto de teste (1.407 clientes, sendo 374 com churn).
 
-| Métrica | Classe 0 (permaneceu) | Classe 1 (cancelou) |
+### Comparação dos modelos (limiar 0,5, métricas da classe que cancelou)
+
+| Modelo | Recall | Precision | Acurácia |
+|---|---|---|---|
+| Regressão Logística | 0,57 | 0,65 | 0,80 |
+| Random Forest (200 árvores) | 0,50 | 0,62 | 0,79 |
+
+A Regressão Logística superou a Random Forest em recall, precision e acurácia, e foi mantida como modelo principal.
+
+### Ajuste do limiar de decisão (Regressão Logística)
+
+| Limiar | Recall | Precision |
 |---|---|---|
-| Precision | 0,85 | 0,65 |
-| Recall | 0,89 | 0,57 |
-| F1-score | 0,87 | 0,61 |
+| 0,5 | 0,57 | 0,65 |
+| 0,4 | 0,68 | 0,58 |
+| 0,3 | 0,76 | 0,51 |
+| 0,2 | 0,87 | 0,46 |
 
-**Acurácia geral:** 0,80
+Com limiar de **0,3**, o recall da classe de churn sobe de 0,57 para **0,76**, com F1 estável em 0,61. O custo é a queda da precision (0,65 para 0,51) e da acurácia geral (0,80 para 0,74).
 
-**Referência:** um classificador que prevê sempre "permanece" atingiria cerca de 73% de acurácia, portanto o ganho em acurácia é modesto.
+**Referência:** um classificador que prevê sempre "permanece" atingiria cerca de 73% de acurácia, mas não detectaria nenhum cancelamento. Por isso a avaliação prioriza o recall.
 
-**Leitura:** o modelo identifica bem quem permanece, mas detecta apenas 57% dos clientes que cancelam, deixando passar cerca de 43%. Como o custo de perder um cliente tende a superar o custo de uma ação de retenção desnecessária, o recall da classe 1 é a principal métrica a melhorar.
+**Decisão de negócio:** a escolha do limiar ideal depende do custo de uma ação de retenção (por exemplo, um desconto) em relação ao custo de perder um cliente. Se a ação é barata e a perda é cara, vale reduzir o limiar. O valor adotado na API é 0,3.
+
+## Variáveis mais importantes
+
+Coeficientes da Regressão Logística (positivo empurra para cancelar, negativo empurra para permanecer):
+
+| Variável | Peso | Efeito |
+|---|---|---|
+| `tenure` (tempo de casa) | -1,35 | Permanecer |
+| Contrato de 2 anos | -0,78 | Permanecer |
+| Internet DSL | -0,62 | Permanecer |
+| Contrato mensal | +0,61 | Cancelar |
+| Internet fibra ótica | +0,59 | Cancelar |
+
+**Leitura:** o perfil de maior risco é o do cliente recente, com contrato mensal e internet por fibra. Clientes antigos e com contratos longos tendem a permanecer.
+
+**Ressalvas:** `TotalCharges`, `MonthlyCharges` e `tenure` são correlacionadas entre si (o total pago é aproximadamente a mensalidade vezes o tempo de casa), então os pesos individuais dessas três variáveis não devem ser interpretados isoladamente. Além disso, os coeficientes indicam associação, não causa.
+
+## API
+
+API construída com **FastAPI** que recebe os dados de um cliente e retorna a probabilidade de cancelamento.
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/` | Verifica se a API está no ar |
+| POST | `/prever` | Retorna a probabilidade de churn de um cliente |
+| GET | `/docs` | Documentação interativa (Swagger) |
+
+Exemplo de requisição para `POST /prever`:
+
+```json
+{
+  "gender": "Female",
+  "SeniorCitizen": 0,
+  "Partner": "No",
+  "Dependents": "No",
+  "tenure": 2,
+  "PhoneService": "Yes",
+  "MultipleLines": "No",
+  "InternetService": "Fiber optic",
+  "OnlineSecurity": "No",
+  "OnlineBackup": "No",
+  "DeviceProtection": "No",
+  "TechSupport": "No",
+  "StreamingTV": "Yes",
+  "StreamingMovies": "Yes",
+  "Contract": "Month-to-month",
+  "PaperlessBilling": "Yes",
+  "PaymentMethod": "Electronic check",
+  "MonthlyCharges": 95.5,
+  "TotalCharges": 191.0
+}
+```
+
+Resposta:
+
+```json
+{
+  "probabilidade_cancelar": 0.76,
+  "vai_cancelar": true,
+  "limiar": 0.3
+}
+```
+
+## Docker
+
+A API pode ser executada em um container, sem instalar dependências localmente.
+
+```bash
+docker build -t churn-api .
+docker run -p 8000:8000 churn-api
+```
+
+Depois, acesse `http://localhost:8000/docs`.
 
 ## Como reproduzir
 
 ```bash
 git clone https://github.com/atararossatti/projeto-churn.git
 cd projeto-churn
-pip install pandas scikit-learn matplotlib jupyter
+pip install -r requirements.txt
+pip install matplotlib jupyter
 jupyter notebook churn.ipynb
 ```
 
-O notebook baixa o dataset diretamente da fonte, sem necessidade de arquivos locais.
+O notebook baixa o dataset diretamente da fonte, sem necessidade de arquivos locais. Para rodar a API sem Docker:
 
-## Próximos passos
+```bash
+uvicorn api.main:app --reload
+```
 
-- [ ] Ajustar o limiar de decisão para aumentar o recall
-- [ ] Comparar com Random Forest e XGBoost/LightGBM
-- [ ] Validação cruzada
-- [ ] Análise de importância das variáveis
-- [ ] Organizar o código em módulos (`src/`) e adicionar `requirements.txt`
-- [ ] Servir o modelo via API (FastAPI) com Docker
+## Estrutura do projeto
+
+```
+projeto-churn/
+├── api/
+│   └── main.py              # API FastAPI
+├── images/                  # Gráficos usados no README
+├── models/
+│   └── modelo_churn.joblib  # Modelo treinado (Pipeline)
+├── churn.ipynb              # Análise, treino e avaliação
+├── Dockerfile
+├── requirements.txt
+└── README.md
+```
+
+## Limitações e próximos passos
+
+**Limitações**
+- O limiar foi avaliado diretamente no conjunto de teste. O ideal é escolhê-lo com validação cruzada, preservando o teste para a avaliação final.
+- Os dados são fictícios, então os resultados não representam uma operação real.
+- A Random Forest foi testada apenas com os parâmetros padrão, sem ajuste de hiperparâmetros.
+
+**Próximos passos**
+- [ ] Validação cruzada para escolher o limiar
+- [ ] Testar XGBoost/LightGBM com ajuste de hiperparâmetros
+- [ ] Testes automatizados para a API
+- [ ] Pipeline de CI no GitHub Actions
+- [ ] Publicar a API em um serviço de nuvem
 
 ## Fonte dos dados
 
